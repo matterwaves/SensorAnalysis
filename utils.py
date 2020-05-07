@@ -3,6 +3,8 @@ import csv
 import numpy as np
 from numpy.linalg import norm
 from numpy import exp,sin,cos,pi
+import ahrs
+from ahrs import Quaternion
 
 
 def load_endaq_log(prefix,t_min=0,t_max=3600):
@@ -139,3 +141,56 @@ def synchronize_series(series,ref=None):
     return series.reindex(\
         series.index.union( ref.index     )\
         ).interpolate().loc[ref.index]
+
+
+def idx_filter(t,data,intervals):
+    """
+    Filter the data inside the intervals
+    params:
+        t=[t1,t2,..,tn]
+        data=[data1,data2,...,datan]
+        intervals=[(a1,b1),(a2,b2),...]
+    output:
+        data[t in (a1,b1) or t in (a2,b2) ,...]
+    """
+    mask=np.array([False]*len(t))
+    for interval in intervals:
+        mask|= (interval[0]<t) & (t<interval[1])
+    return t[mask],data[:,mask]
+
+
+
+def apply_ahrs(gyro,acc,mag,ts):
+    assert len(gyro)==len(acc)
+    assert len(acc)==len(mag)
+    assert len(mag)==len(ts)
+
+    ## Compute the frequency and number of samples
+    dt=np.mean(ts[1:]-ts[0:-1])
+    freq=1/dt
+    num_samples=len(ts)
+
+    # Initialize the AHRS filter
+    madgwick=ahrs.filters.Madgwick(beta=0.1,frequency=freq)
+
+    # Allocate arrays
+    # Initial orientation is set as the reference
+    QMARG= np.tile([1.,0.,0.,0.],(num_samples,1))
+    QIMU= np.tile([1.,0.,0.,0.],(num_samples,1))
+    ACC_LAB=np.zeros((num_samples,3))
+
+    ## Measured value of local gravity 9.799 m/s^2
+    g=np.array([0,0,0.5])
+
+    # For each time step apply the estimation filter
+    for t in range(1,num_samples):
+
+        # Orientation estimation using madwick filter
+        QMARG[t]=madgwick.updateMARG(QMARG[t-1],gyro[t],acc[t],mag[t])
+        QIMU[t]=madgwick.updateIMU(QIMU[t-1],gyro[t],acc[t])
+
+        #For some reason QIMU is much better than QMARG
+
+        #Rotate the acceleration vector from sensor frame to lab frame
+        ACC_LAB[t]=Quaternion(QIMU[t]).rotate(acc[t])-g
+    return ACC_LAB,QIMU
