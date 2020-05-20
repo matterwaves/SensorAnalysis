@@ -14,7 +14,6 @@ def load_endaq_log(prefix,t_min=0,t_max=3600,g=9.799):
     The specific fields can be hard-coded since they wont change.
     Make sure the configuration on the device is set to record these channels.
     raw accelerations come out in units of g's, and converted here to m/s^2
-
     t_filter = callable function to filter data based on time-values
     """
 
@@ -99,7 +98,6 @@ def axb2(a,b,sumall=True):
     Vectorized wrapper for computing: (Sum) |axb|^2
     row index is the first index, as with drawing matrices on paper
     a,b = 3xN arrays
-
     Symmetry: f(a,b)=f(b,a)
     """
     if sumall:
@@ -176,7 +174,7 @@ def idx_filter(t,data,intervals):
 def apply_ahrs(gyro,acc,mag,ts,\
                q0=np.array([1.0,0.0,0.0,0.0]) ,g=np.array([0,0,9.799]),\
                position=False,zero_period=0.300,workspace=dict(),   \
-               filter="IMU"\
+               filter="IMU", betaval = 0.1\
                ):
     """
     Measured value of local gravity is 9.799 m/s^2
@@ -206,7 +204,7 @@ def apply_ahrs(gyro,acc,mag,ts,\
     num_samples=len(ts)
 
     # Initialize the AHRS filter
-    madgwick=ahrs.filters.Madgwick(beta=0.1,frequency=freq)
+    madgwick=ahrs.filters.Madgwick(beta=betaval,frequency=freq)
 
     # Allocate arrays using kwarg q0 as the initial reference orientation
     if 'Q' not in workspace.keys():
@@ -278,8 +276,8 @@ def apply_ahrs(gyro,acc,mag,ts,\
                workspace['state'][t]=np.zeros(6)
                next_zero=ts[t]+zero_period
     if position:
-        return workspace['acc_lab'],workspace['Q_quat'],workspace['state']
-    return workspace['acc_lab'],workspace['Q_quat']
+        return workspace['acc_lab'],workspace['Q'],workspace['state']
+    return workspace['acc_lab'],workspace['Q']
 
 
 
@@ -287,27 +285,21 @@ def msqError(params,intervals,acc,gyro,mag,ts,g=np.array([0,0,9.799]),workspace=
     """
     Evaluate the msq error of the calibration/orientation model
     params=[scalex, scaley,scalez, biasx,biasy,biasz, q_w,q_i,q_j,q_k]
-
     intervals=[(a1,b1),(a2,b2),...]
         sections of the calibration data set which are quiet
         used for calculating the msq error at the end
-
     acc:
         acclerometer time series
-
     gyro:
         gyroscope time series
-
     mag:
         magnetometer time series
-
     ts:
         time values
     g:
         known gravity vector
     workspace:
         dictionary of arrays that is preallocated
-
     make sure that acc,gyro,mag are time synced
     """
     scale=params[0:3]
