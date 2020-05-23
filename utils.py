@@ -174,7 +174,7 @@ def idx_filter(t,data,intervals):
 def apply_ahrs(gyro,acc,mag,ts,\
                q0=np.array([1.0,0.0,0.0,0.0]) ,g=np.array([0,0,9.799]),\
                position=False,zero_period=0.300,workspace=dict(),   \
-               filter="IMU", betaval = 0.1\
+               filter="IMU", betaval = 0.1, reset = True\
                ):
     """
     Measured value of local gravity is 9.799 m/s^2
@@ -272,9 +272,9 @@ def apply_ahrs(gyro,acc,mag,ts,\
 
            ## Periodically re-zero the state
            ## This is for inspecting the short-term performance
-           if ts[t] > next_zero:
-               workspace['state'][t]=np.zeros(6)
-               next_zero=ts[t]+zero_period
+           #if ts[t] > next_zero:
+           #    workspace['state'][t]=np.zeros(6)
+           #    next_zero=ts[t]+zero_period
     if position:
         return workspace['acc_lab'],workspace['Q'],workspace['state']
     return workspace['acc_lab'],workspace['Q']
