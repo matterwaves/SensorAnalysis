@@ -272,9 +272,9 @@ def apply_ahrs(gyro,acc,mag,ts,\
 
            ## Periodically re-zero the state
            ## This is for inspecting the short-term performance
-           #if ts[t] > next_zero:
-           #    workspace['state'][t]=np.zeros(6)
-           #    next_zero=ts[t]+zero_period
+           if ts[t] > next_zero:
+               workspace['state'][t]=np.zeros(6)
+               next_zero=ts[t]+zero_period
     if position:
         return workspace['acc_lab'],workspace['Q'],workspace['state']
     return workspace['acc_lab'],workspace['Q']
@@ -336,3 +336,97 @@ def calibrate(data,params=recent_cal):
     scale=np.array(params[0:3],dtype=np.float)
     bias= np.array(params[3:6],dtype=np.float)
     return data.dot(np.diag(scale))+bias
+
+#def kalman_filter(t=np.array([0]),acc_lab=np.array(len(t)*[[0,0,0]]),z=len(t)*[[0,0,0,0,0,0]],q=6*[0.01],r=6*[0.01]):
+def kalman_filter(t=[0],acc_lab=[0,0,0],z=[[0,0,0,0,0,0]],q=[0.1,0.1,0.1,0.1,0.1,0.1],r=[0.1,0.1,0.1,0.1,0.1,0.1],reset=False,time_period=0.300,acc_var=[-0.0063, -0.0501, 0.0099]):
+    
+    t=np.asarray(t)
+    acc_lab=np.asarray(acc_lab)
+    
+    dt=np.mean(t[1:]-t[0:-1])
+
+    #Kalman corrected state vector, accuracy matrix, and Kalman gain as arrays
+    #Velocity will be used everywhere as is from the state vector since we aren't measuring it
+
+    state_guess = len(t)*[[0,0,0,0,0,0]]
+    P=len(t)*[np.matrix(np.diag([0,0,0,0,0,0]))] 
+    K=[np.matrix(np.diag([0,0,0,0,0,0]))]
+    next_zero=-1 #For intermittent resetting
+    #Fake GPS data]
+
+
+    #F is old state to new state Matrix, B is acceleration to new state Matrix
+
+    F=np.matrix(\
+    [\
+    [1,  0,  0,  dt,  0,  0  ] ,\
+    [0,  1,  0,  0,  dt,  0  ] ,\
+    [0,  0,  1,  0,  0,  dt  ] ,\
+    [0,  0,  0,  1,  0,  0   ] ,\
+    [0,  0,  0,  0,  1,  0   ] ,\
+    [0,  0,  0,  0,  0,  1   ] ,\
+    ]\
+    )
+    B=np.matrix(\
+    [\
+    [dt**2/2,  0,    0    ] ,\
+    [0,    dt**2/2,  0    ] ,\
+    [0,        0,  dt**2/2] ,\
+    [dt,       0,    0    ] ,\
+    [0,       dt,    0    ] ,\
+    [0,        0,    dt   ] ,\
+    ]\
+    )
+
+    #Q covariance of sensor axes matrix, R Covariance of GPS uncertainty Matrix
+
+    #Acceleration Variance Vector
+    
+    #Noise in state equation is B times noise in acceleration
+    #Use sum of variance relation to obtain
+    Q,R = np.matrix(np.diag(q)),np.matrix(np.diag(r))
+    position_variances = [0,0,0,0,0,0]
+    
+    #for i in range(6):
+    #    position_variances[i]=B.item((i,0))*acc_var[0]+B.item((i,1))*acc_var[1]+B.item((i,2))*acc_var[2]+q[i]
+    #Q=np.matrix(np.diag(position_variances))
+
+    #Initialise variables 
+
+    for i in range(len(t)):
+        z[i]=[z[i][0],z[i][1],z[i][2],0,0,0]
+    #    state_guess[i]=[state_guess[i][0],state_guess[i][1],state_guess[i][2],state[i][3],state[i][4],state[i][5]]
+
+    #create naive state guess and naive accuracy matrix
+    state_naive,P_naive = state_guess[0],P[0]
+    #Kalman filter loop
+    for i in range(1,len(t)):
+        #Predict Equations
+        state_naive=np.asarray((F.dot(state_guess[i-1])+B.dot(acc_lab[i])))[0]
+        P_naive = F.dot(P[i-1])
+        P_naive = P_naive.dot(F.transpose())+Q
+        if i>1:
+            for j in [3,4,5]:
+                z[i][j]=state_guess[i-1][j]
+        #Update Equations
+        K=P_naive.dot(np.linalg.inv(P_naive+R))
+        y=np.asarray(z[i])-state_naive
+        state_guess[i]=state_naive+np.asarray(K.dot(y))[0]
+        P[i]=(np.matrix(np.identity(6))-K).dot(P_naive)
+        #for i in range(6):
+        #    position_variances[i]+=B.item((i,0))*acc_var[0]+B.item((i,1))*acc_var[1]+B.item((i,2))*acc_var[2]
+        #Q=np.matrix(np.diag(position_variances))
+        if reset:
+            if t[i]>next_zero:
+                state_guess[i]=np.asarray([0,0,0,0,0,0])
+                P[i]=np.matrix(np.diag([0,0,0,0,0,0]))
+                next_zero+=time_period
+                #Q=np.matrix(np.diag(q))
+                #position_variances=q
+                #print(Q)
+        
+    return state_guess
+
+    
+
+    
