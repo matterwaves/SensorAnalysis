@@ -47,9 +47,6 @@ def load_endaq_log(prefix,t_min=0,t_max=3600,g=9.799):
                             for chunk in iter_csv  \
                             ])
 
-            # Deprecated method loading all samples at once
-            #raw_dat[key]=pd.read_csv(prefix+ch,header=None,names=["t","x","y","z"])
-
             ## Make the time column into the index, using the timedelta data type
             raw_dat[key].index =pd.to_timedelta(raw_dat[key]['t'],unit="s")
             del raw_dat[key]['t']
@@ -64,6 +61,35 @@ def load_endaq_log(prefix,t_min=0,t_max=3600,g=9.799):
             raw_dat[acc] = raw_dat[acc].apply(lambda q: q*g if q.name in ['x', 'y','z'] else q)
 
     return raw_dat
+
+def parse_arducopter_log(logfile, keys=["IMU","IMU2","IMU3","MAG2","MAG3"]):
+    """
+    Only keep the sensor data specified in the list of keys
+    """
+
+    # Initialize data and format code dictionaries
+    data_dict={}
+    fmt_dict={}
+    for key in keys:
+        data_dict[key]=[]
+
+    ## Read in the format codes and data samples
+    with open(logfile) as csvfile:
+        reader=csv.reader(csvfile)
+        for row in reader:
+            # Extract the data format
+            if row[0].strip()=="FMT" and row[3].strip() in keys:# and row[3] in keys:
+                key=row[3].strip()
+                fmt_dict[key]=[ x.strip() for x in row[5:] ]
+            # Extract the data
+            elif row[0].strip() in keys:
+                key=row[0].strip()
+                data_dict[key].append(row[1:])
+
+    ## Convert list of lists into pandas dataframe using format codes for column names
+    for key in keys:
+        data_dict[key] = pd.DataFrame(data_dict[key],columns=fmt_dict[key])
+    return data_dict
 
 def subangle(v1,v2):
     """
@@ -339,17 +365,15 @@ def calibrate(data,params=recent_cal):
 
 #def kalman_filter(t=np.array([0]),acc_lab=np.array(len(t)*[[0,0,0]]),z=len(t)*[[0,0,0,0,0,0]],q=6*[0.01],r=6*[0.01]):
 def kalman_filter(t=[0],acc_lab=[0,0,0],z=[[0,0,0,0,0,0]],q=[0.1,0.1,0.1,0.1,0.1,0.1],r=[0.1,0.1,0.1,0.1,0.1,0.1],reset=False,time_period=0.300,acc_var=[-0.0063, -0.0501, 0.0099]):
-    
     t=np.asarray(t)
     acc_lab=np.asarray(acc_lab)
-    
     dt=np.mean(t[1:]-t[0:-1])
 
     #Kalman corrected state vector, accuracy matrix, and Kalman gain as arrays
     #Velocity will be used everywhere as is from the state vector since we aren't measuring it
 
     state_guess = len(t)*[[0,0,0,0,0,0]]
-    P=len(t)*[np.matrix(np.diag([0,0,0,0,0,0]))] 
+    P=len(t)*[np.matrix(np.diag([0,0,0,0,0,0]))]
     K=[np.matrix(np.diag([0,0,0,0,0,0]))]
     next_zero=-1 #For intermittent resetting
     #Fake GPS data]
@@ -381,17 +405,17 @@ def kalman_filter(t=[0],acc_lab=[0,0,0],z=[[0,0,0,0,0,0]],q=[0.1,0.1,0.1,0.1,0.1
     #Q covariance of sensor axes matrix, R Covariance of GPS uncertainty Matrix
 
     #Acceleration Variance Vector
-    
+
     #Noise in state equation is B times noise in acceleration
     #Use sum of variance relation to obtain
     Q,R = np.matrix(np.diag(q)),np.matrix(np.diag(r))
     position_variances = [0,0,0,0,0,0]
-    
+
     #for i in range(6):
     #    position_variances[i]=B.item((i,0))*acc_var[0]+B.item((i,1))*acc_var[1]+B.item((i,2))*acc_var[2]+q[i]
     #Q=np.matrix(np.diag(position_variances))
 
-    #Initialise variables 
+    #Initialise variables
 
     for i in range(len(t)):
         z[i]=[z[i][0],z[i][1],z[i][2],0,0,0]
@@ -424,9 +448,4 @@ def kalman_filter(t=[0],acc_lab=[0,0,0],z=[[0,0,0,0,0,0]],q=[0.1,0.1,0.1,0.1,0.1
                 #Q=np.matrix(np.diag(q))
                 #position_variances=q
                 #print(Q)
-        
     return state_guess
-
-    
-
-    
