@@ -198,8 +198,8 @@ def idx_filter(t,data,intervals):
 
 
 def apply_ahrs(gyro,acc,mag,ts,\
-               q0=np.array([1.0,0.0,0.0,0.0]) ,g=np.array([0,0,9.799]),\
-               position=False,zero_period=0.300,workspace=dict(),   \
+               q0=Quaternion.q ,g=np.array([0,0,9.799]),\
+               position=False,zero_period=0.300,   \
                filter="IMU", betaval = 0.1, reset = True\
                ):
     """
@@ -233,24 +233,16 @@ def apply_ahrs(gyro,acc,mag,ts,\
     madgwick=ahrs.filters.Madgwick(beta=betaval,frequency=freq)
 
     # Allocate arrays using kwarg q0 as the initial reference orientation
-    if 'Q' not in workspace.keys():
-       workspace['Q']=  np.tile(q0,(num_samples,1))
-    workspace['Q'][0]=q0
-
-    if 'Q_quat' not in workspace.keys():
-       workspace['Q_quat']=  np.tile(Quaternion(q0),(num_samples,1))
-    workspace['Q_quat'][0]=Quaternion(q0)
-
-    if 'acc_lab' not in workspace.keys():
-       workspace['acc_lab']=np.zeros((num_samples,3))
-
+    Q =  np.tile(q0,(num_samples,1))
+    Q_quat =  np.tile(Quaternion(q0),(num_samples,1))
+    acc_lab = np.zeros((num_samples,3))
     QIMU_quat=np.tile(Quaternion(q0),(num_samples,1))
 
     ## position bool controls whether the position,velocity estimator runs
     if position:
 
-        if 'state' not in workspace.keys():
-            workspace['state']=np.zeros((num_samples,6))
+        state=np.zeros((num_samples,6))
+        state_sampled,t_sampled=[],[]
         ## Process transition matrix
         ## x=x0 + v0 dt + 1/2 (a-g) dt^2
         A=np.matrix(\
@@ -284,26 +276,28 @@ def apply_ahrs(gyro,acc,mag,ts,\
         # Orientation estimation using madwick filter
         # Default gains are tuned for IMU not MARG
         if filter == "IMU":
-          workspace['Q'][t]=madgwick.updateIMU(workspace['Q'][t-1],gyro[t],acc[t])
+          Q[t]=madgwick.updateIMU(Q[t-1],gyro[t],acc[t])
         elif filter == "MARG":
-          workspace['Q'][t]=madgwick.updateMARG(workspace['Q'][t-1],gyro[t],acc[t],mag[t])
+          Q[t]=madgwick.updateMARG(Q[t-1],gyro[t],acc[t],mag[t])
 
-        workspace['Q_quat'][t]=Quaternion(workspace['Q'][t])
+        #Q_quat[t]=Quaternion(Q[t])
         #Rotate the acceleration vector from sensor frame to lab frame
-        workspace['acc_lab'][t]=Quaternion(workspace['Q'][t]).rotate(acc[t])-g
+        acc_lab[t]=Quaternion(Q[t]).rotate(acc[t])-g
 
         if position:
            #Update the state using the process and control matrices
-           workspace['state'][t]=A.dot(workspace['state'][t-1])+B.dot(workspace['acc_lab'][t-1])
+           state[t]=A.dot(state[t-1])+B.dot(acc_lab[t-1])
 
            ## Periodically re-zero the state
            ## This is for inspecting the short-term performance
            if ts[t] > next_zero:
-               workspace['state'][t]=np.zeros(6)
+               state[t]=np.zeros(6)
                next_zero=ts[t]+zero_period
+               state_sampled.append(state[t-1])
+               t_sampled.append(ts[t-1])
     if position:
-        return workspace['acc_lab'],workspace['Q'],workspace['state']
-    return workspace['acc_lab'],workspace['Q']
+        return acc_lab,Q,state,state_sampled,t_sampled
+    return acc_lab,Q
 
 
 
